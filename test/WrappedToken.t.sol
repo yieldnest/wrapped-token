@@ -260,4 +260,44 @@ contract WrappedTokenTest is Test {
         uint256 resultingAssets = wrappedToken.previewRedeem(shares);
         assertGe(resultingAssets, assetsAmount, "Resulting assets should be >= requested assets");
     }
+
+    function testFuzz_PreviewMint(uint256 sharesAmount) public {
+        // Bound the input to avoid extremely large values
+        sharesAmount = bound(sharesAmount, 1, 100_000_000e18);
+
+        // Expected result should be rounded up to ensure enough assets are provided
+        uint256 expectedAssets = (sharesAmount + 10 ** 12 - 1) / 10 ** 12;
+
+        // Call previewMint
+        uint256 assets = wrappedToken.previewMint(sharesAmount);
+
+        // Assert that the result matches our expectation
+        assertEq(assets, expectedAssets, "previewMint should round up when converting to assets");
+
+        // Verify rounding behavior: assets to shares conversion should provide at least the requested shares
+        uint256 resultingShares = wrappedToken.previewDeposit(assets);
+        assertGe(
+            resultingShares,
+            sharesAmount,
+            "Converting assets back to shares should be >= original shares due to rounding up"
+        );
+    }
+
+    function testFuzz_PreviewDeposit(uint256 assetsAmount) public {
+        // Bound the input to avoid extremely large values and overflows
+        assetsAmount = bound(assetsAmount, 1, 100_000_000e6);
+
+        // Expected result for shares when depositing assets
+        uint256 expectedShares = assetsAmount * 10 ** 12;
+
+        // Call previewDeposit
+        uint256 shares = wrappedToken.previewDeposit(assetsAmount);
+
+        // Assert that the result matches our expectation
+        assertEq(shares, expectedShares, "previewDeposit should convert assets to shares correctly");
+
+        // Verify that using these shares would require at most the provided assets
+        uint256 resultingAssets = wrappedToken.previewMint(shares);
+        assertLe(resultingAssets, assetsAmount, "Assets needed to mint shares should be <= original assets");
+    }
 }
