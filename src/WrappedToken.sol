@@ -112,9 +112,9 @@ contract WrappedToken is Initializable, ERC4626Upgradeable, AccessControlUpgrade
     }
 
     // keccak256(abi.encode(uint256(keccak256("WrappedToken.storage")) - 1)) & ~bytes32(uint256(0xff))
-    bytes32 private constant TOKEN_STORAGE_LOCATION = 0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382b00;
+    bytes32 private constant TokenStorageLocation = 0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382b00;
 
-    function _getTokenStorage() private pure returns (TokenStorage storage ts) {
+    function _getTokenStorage() internal pure returns (TokenStorage storage ts) {
         bytes32 position = TOKEN_STORAGE_LOCATION;
         assembly {
             ts.slot := position
