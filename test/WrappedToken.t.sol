@@ -184,7 +184,7 @@ contract WrappedTokenTest is Test {
         assertEq(mockToken.balanceOf(user), initialBalance, "User's mock token balance should return to initial amount");
     }
 
-    function testPreviewRedeem() public {
+    function testPreviewRedeem() public view {
         // Test with a value that doesn't divide evenly
         uint256 sharesAmount = 1_234_567_890_123_456_789; // 1.234567890123456789 with 18 decimals
 
@@ -198,7 +198,7 @@ contract WrappedTokenTest is Test {
         assertEq(assets, expectedAssets, "previewRedeem should round down when converting to assets");
     }
 
-    function testPreviewWithdraw() public {
+    function testPreviewWithdraw() public view {
         // Test with a value that doesn't divide evenly
         uint256 assetsAmount = 1_234_567; // 1.234567 with 6 decimals
 
@@ -223,7 +223,7 @@ contract WrappedTokenTest is Test {
         assertEq(resultingAssets, oddAssetsAmount, "Resulting assets should be >= requested assets");
     }
 
-    function testFuzz_PreviewRedeem(uint256 sharesAmount) public {
+    function testFuzz_PreviewRedeem(uint256 sharesAmount) public view {
         // Bound the input to avoid extremely large values
         sharesAmount = bound(sharesAmount, 1, 100_000_000e18);
 
@@ -243,7 +243,7 @@ contract WrappedTokenTest is Test {
         );
     }
 
-    function testFuzz_PreviewWithdraw(uint256 assetsAmount) public {
+    function testFuzz_PreviewWithdraw(uint256 assetsAmount) public view {
         // Bound the input to avoid extremely large values and overflows
         assetsAmount = bound(assetsAmount, 1, 100_000_000e6);
 
@@ -261,7 +261,7 @@ contract WrappedTokenTest is Test {
         assertGe(resultingAssets, assetsAmount, "Resulting assets should be >= requested assets");
     }
 
-    function testFuzz_PreviewMint(uint256 sharesAmount) public {
+    function testFuzz_PreviewMint(uint256 sharesAmount) public view {
         // Bound the input to avoid extremely large values
         sharesAmount = bound(sharesAmount, 1, 100_000_000e18);
 
@@ -283,7 +283,7 @@ contract WrappedTokenTest is Test {
         );
     }
 
-    function testFuzz_PreviewDeposit(uint256 assetsAmount) public {
+    function testFuzz_PreviewDeposit(uint256 assetsAmount) public view {
         // Bound the input to avoid extremely large values and overflows
         assetsAmount = bound(assetsAmount, 1, 100_000_000e6);
 
