@@ -183,4 +183,43 @@ contract WrappedTokenTest is Test {
         assertEq(wrappedToken.balanceOf(user), 0, "User's wrapped token balance should be zero after full withdrawal");
         assertEq(mockToken.balanceOf(user), initialBalance, "User's mock token balance should return to initial amount");
     }
+
+    function testPreviewRedeem() public {
+        // Test with a value that doesn't divide evenly
+        uint256 sharesAmount = 1_234_567_890_123_456_789; // 1.234567890123456789 with 18 decimals
+
+        // Expected result should be rounded down to 6 decimals
+        uint256 expectedAssets = sharesAmount / 10 ** 12; // 1_234_567 (1.234567 with 6 decimals)
+
+        // Call previewRedeem
+        uint256 assets = wrappedToken.previewRedeem(sharesAmount);
+
+        // Assert that the result matches our expectation
+        assertEq(assets, expectedAssets, "previewRedeem should round down when converting to assets");
+    }
+
+    function testPreviewWithdraw() public {
+        // Test with a value that doesn't divide evenly
+        uint256 assetsAmount = 1_234_567; // 1.234567 with 6 decimals
+
+        // Expected result should be rounded up to 18 decimals
+        // When converting 1_234_567 assets to shares, we need to multiply by 10^12
+        // But since we need to round up for withdrawals, we need to handle the case
+        // where the division isn't exact
+        uint256 expectedShares = assetsAmount * 10 ** 12;
+
+        // Call previewWithdraw
+        uint256 shares = wrappedToken.previewWithdraw(assetsAmount);
+
+        // Assert that the result matches our expectation
+        assertEq(shares, expectedShares, "previewWithdraw should round up when converting to shares");
+
+        // Test with a value that requires rounding
+        uint256 oddAssetsAmount = 1_234_568_000_000_000_000; // An amount that would cause rounding
+        uint256 calculatedShares = wrappedToken.previewWithdraw(oddAssetsAmount);
+
+        // Verify that using these shares would give at least the requested assets
+        uint256 resultingAssets = wrappedToken.previewRedeem(calculatedShares);
+        assertEq(resultingAssets, oddAssetsAmount, "Resulting assets should be >= requested assets");
+    }
 }
