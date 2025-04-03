@@ -222,4 +222,42 @@ contract WrappedTokenTest is Test {
         uint256 resultingAssets = wrappedToken.previewRedeem(calculatedShares);
         assertEq(resultingAssets, oddAssetsAmount, "Resulting assets should be >= requested assets");
     }
+
+    function testFuzz_PreviewRedeem(uint256 sharesAmount) public {
+        // Bound the input to avoid extremely large values
+        sharesAmount = bound(sharesAmount, 1, 100_000_000e18);
+
+        // Expected result should be rounded down to 6 decimals
+        uint256 expectedAssets = sharesAmount / 10 ** 12;
+
+        // Call previewRedeem
+        uint256 assets = wrappedToken.previewRedeem(sharesAmount);
+
+        // Assert that the result matches our expectation
+        assertEq(assets, expectedAssets, "previewRedeem should round down when converting to assets");
+
+        // Verify rounding behavior: shares to assets conversion should round down
+        uint256 backToShares = assets * 10 ** 12;
+        assertLe(
+            backToShares, sharesAmount, "Converting back to shares should be <= original shares due to rounding down"
+        );
+    }
+
+    function testFuzz_PreviewWithdraw(uint256 assetsAmount) public {
+        // Bound the input to avoid extremely large values and overflows
+        assetsAmount = bound(assetsAmount, 1, 100_000_000e6);
+
+        // Expected result for shares when withdrawing assets
+        uint256 expectedShares = assetsAmount * 10 ** 12;
+
+        // Call previewWithdraw
+        uint256 shares = wrappedToken.previewWithdraw(assetsAmount);
+
+        // Assert that the result matches our expectation
+        assertEq(shares, expectedShares, "previewWithdraw should convert assets to shares correctly");
+
+        // Verify that using these shares would give at least the requested assets
+        uint256 resultingAssets = wrappedToken.previewRedeem(shares);
+        assertGe(resultingAssets, assetsAmount, "Resulting assets should be >= requested assets");
+    }
 }
