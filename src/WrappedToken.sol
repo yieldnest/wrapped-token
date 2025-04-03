@@ -9,14 +9,16 @@ import {IERC20Metadata} from "lib/openzeppelin-contracts/contracts/token/ERC20/e
 import {SafeERC20} from "lib/openzeppelin-contracts/contracts/token/ERC20/utils/SafeERC20.sol";
 import {Initializable} from "lib/openzeppelin-contracts-upgradeable/contracts/proxy/utils/Initializable.sol";
 import {Math} from "lib/openzeppelin-contracts/contracts/utils/math/Math.sol";
+import {AccessControlUpgradeable} from "lib/openzeppelin-contracts-upgradeable/contracts/access/AccessControlUpgradeable.sol";
 
-contract WrappedToken is Initializable, ERC4626Upgradeable {
-    struct TokenStorage {
-        uint8 decimalsOffset;
-    }
 
-    // keccak256(abi.encode(uint256(keccak256("WrappedToken.storage")) - 1)) & ~bytes32(uint256(0xff))
-    bytes32 private constant TOKEN_STORAGE_LOCATION = 0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382b00;
+contract WrappedToken is Initializable, ERC4626Upgradeable, AccessControlUpgradeable {
+
+
+    /**
+     * @dev Role that allows recovering tokens accidentally sent to the contract
+     */
+    bytes32 public constant RECOVER_ROLE = keccak256("RECOVER_ROLE");
 
     /**
      * @dev The underlying token couldn't be wrapped.
@@ -28,19 +30,12 @@ contract WrappedToken is Initializable, ERC4626Upgradeable {
         _disableInitializers();
     }
 
-    function _getTokenStorage() private pure returns (TokenStorage storage ts) {
-        bytes32 position = TOKEN_STORAGE_LOCATION;
-        assembly {
-            ts.slot := position
-        }
-    }
-
     function initialize(
         IERC20 underlyingToken,
         string memory name,
         string memory symbol,
         uint8 decimalsValue,
-        uint8 decimalsOffset
+        uint8 tokenDecimalsOffset
     ) public initializer {
         if (address(underlyingToken) == address(this)) {
             revert ERC20InvalidUnderlying(address(this));
@@ -48,12 +43,17 @@ contract WrappedToken is Initializable, ERC4626Upgradeable {
 
         __ERC4626_init(underlyingToken);
         __ERC20_init(name, symbol);
+        __AccessControl_init();
+
+        // Initialize roles
+        _grantRole(DEFAULT_ADMIN_ROLE, msg.sender);
+        _grantRole(RECOVER_ROLE, msg.sender);
 
         ERC4626Storage storage $ = getERC4626Storage();
         $._underlyingDecimals = decimalsValue;
 
         TokenStorage storage ts = _getTokenStorage();
-        ts.decimalsOffset = decimalsOffset;
+        ts.decimalsOffset = tokenDecimalsOffset;
     }
 
     /**
@@ -92,24 +92,6 @@ contract WrappedToken is Initializable, ERC4626Upgradeable {
     }
 
     /**
-     * @dev Mint wrapped token to cover any underlyingTokens that would have been transferred by mistake or acquired from
-     * rebasing mechanisms. Internal function that can be exposed with access control if desired.
-     */
-    function _recover(address account) internal virtual returns (uint256) {
-        uint256 underlyingBalance = IERC20(asset()).balanceOf(address(this));
-        uint256 expectedUnderlyingBalance = _convertToAssets(totalSupply(), Math.Rounding.Floor);
-
-        if (underlyingBalance > expectedUnderlyingBalance) {
-            uint256 underlyingExcess = underlyingBalance - expectedUnderlyingBalance;
-            uint256 sharesExcess = _convertToShares(underlyingExcess, Math.Rounding.Floor);
-            _mint(account, sharesExcess);
-            return sharesExcess;
-        }
-
-        return 0;
-    }
-
-    /**
      * @dev Returns the decimals offset used for scaling deposits and withdrawals.
      */
     function _decimalsOffset() internal view override returns (uint8) {
@@ -125,7 +107,24 @@ contract WrappedToken is Initializable, ERC4626Upgradeable {
         return _decimalsOffset();
     }
 
-    /// ERC4626 internals ///
+    /// Storage ///
+
+
+    struct TokenStorage {
+        uint8 decimalsOffset;
+    }
+
+    // keccak256(abi.encode(uint256(keccak256("WrappedToken.storage")) - 1)) & ~bytes32(uint256(0xff))
+    bytes32 private constant TOKEN_STORAGE_LOCATION = 0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382b00;
+
+    function _getTokenStorage() private pure returns (TokenStorage storage ts) {
+        bytes32 position = TOKEN_STORAGE_LOCATION;
+        assembly {
+            ts.slot := position
+        }
+    }
+
+    /// ERC4626 Storage ///
 
     // keccak256(abi.encode(uint256(keccak256("openzeppelin.storage.ERC4626")) - 1)) & ~bytes32(uint256(0xff))
     bytes32 internal constant ERC4626StorageLocation =
