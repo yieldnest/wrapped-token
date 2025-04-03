@@ -61,13 +61,21 @@ contract WrappedTokenTest is Test {
         vm.stopPrank();
 
         // Check user's mock token balance decreased
-        assertEq(mockToken.balanceOf(user), userInitialBalance - depositAmount);
+        assertEq(
+            mockToken.balanceOf(user),
+            userInitialBalance - depositAmount,
+            "User's mock token balance should decrease by deposit amount"
+        );
 
         // Check user received wrapped tokens
-        assertEq(wrappedToken.balanceOf(user), sharesReceived);
+        assertEq(wrappedToken.balanceOf(user), sharesReceived, "User should receive correct amount of wrapped tokens");
 
         // Check wrapped token has the deposited tokens
-        assertEq(mockToken.balanceOf(address(wrappedToken)), depositAmount);
+        assertEq(
+            mockToken.balanceOf(address(wrappedToken)),
+            depositAmount,
+            "Wrapped token contract should hold the deposited tokens"
+        );
     }
 
     function test_Withdraw() public {
@@ -83,18 +91,34 @@ contract WrappedTokenTest is Test {
         vm.stopPrank();
 
         // Check user's wrapped token balance decreased
-        assertEq(wrappedToken.balanceOf(user), sharesReceived - assetsReceived);
+        assertEq(
+            wrappedToken.balanceOf(user),
+            sharesReceived - assetsReceived,
+            "User's wrapped token balance should decrease by the shares burned"
+        );
 
         // Check user received mock tokens back
-        assertEq(mockToken.balanceOf(user), userInitialBalance + depositAmount);
+        assertEq(
+            mockToken.balanceOf(user),
+            userInitialBalance + depositAmount,
+            "User should receive back the withdrawn tokens"
+        );
     }
 
     function test_ConversionRates() public {
         uint256 depositAmount = 10 * 10 ** 6;
 
         // Check conversion rates before any deposits
-        assertEq(wrappedToken.convertToShares(1e6), 1e18);
-        assertEq(wrappedToken.convertToAssets(1e18), 1e6);
+        assertEq(
+            wrappedToken.convertToShares(1e6),
+            1e18,
+            "1e6 assets should convert to 1e18 shares (12 decimal places difference)"
+        );
+        assertEq(
+            wrappedToken.convertToAssets(1e18),
+            1e6,
+            "1e18 shares should convert to 1e6 assets (12 decimal places difference)"
+        );
 
         // Make a deposit
         vm.startPrank(user);
@@ -102,20 +126,61 @@ contract WrappedTokenTest is Test {
         vm.stopPrank();
 
         // Conversion rates should still be 1:1
-        assertEq(wrappedToken.convertToShares(1e6), 1e18);
-        assertEq(wrappedToken.convertToAssets(1e18), 1e6);
+        assertEq(wrappedToken.convertToShares(1e6), 1e18, "Conversion rate should remain stable after deposit");
+        assertEq(wrappedToken.convertToAssets(1e18), 1e6, "Conversion rate should remain stable after deposit");
     }
 
-    function testFuzz_DepositWithdraw(uint256 amount) public {
+    function testFuzz_DepositRedeem(uint256 amount) public {
         // Bound the amount to something reasonable
-        amount = bound(amount, 1, 100 * 10 ** 6);
+        amount = bound(amount, 1, 100_000_000 * 10 ** 6);
 
         vm.startPrank(user);
         uint256 sharesReceived = wrappedToken.deposit(amount, user);
         uint256 assetsReceived = wrappedToken.redeem(sharesReceived, user, user);
         vm.stopPrank();
 
+        // Verify that the assets received are less than or equal to the amount deposited
+        // This is important because in some cases there might be rounding down when converting
+        // shares back to assets, but we should never get more assets than we put in
+        assertLe(assetsReceived, amount, "Assets received should not exceed the amount deposited");
+
         // Should get back the same amount (minus potential rounding)
-        assertApproxEqAbs(assetsReceived, amount, 1);
+        assertApproxEqAbs(
+            assetsReceived,
+            amount,
+            1,
+            "Assets received should be approximately equal to amount deposited (within 1 unit)"
+        );
+    }
+
+    function testFuzz_DepositWithdraw(uint256 amount) public {
+        // Bound the amount to something reasonable
+        amount = bound(amount, 1, 100_000_000 * 10 ** 6);
+
+        // Initial balance
+        uint256 initialBalance = mockToken.balanceOf(user);
+
+        // Deposit
+        vm.startPrank(user);
+        uint256 sharesReceived = wrappedToken.deposit(amount, user);
+
+        // Check shares received
+        assertEq(sharesReceived, amount * 10 ** 12, "Shares received should be scaled by the decimals offset (10^12)");
+
+        // Check wrapped token balance
+        assertEq(
+            wrappedToken.balanceOf(user), sharesReceived, "User's wrapped token balance should equal shares received"
+        );
+
+        // Withdraw
+        uint256 sharesBurned = wrappedToken.withdraw(amount, user, user);
+        vm.stopPrank();
+
+        // Check assets received
+        assertEq(sharesBurned, amount * 10 ** 12, "Assets received should equal the amount withdrawn");
+
+        // Check final balances
+        assertEq(wrappedToken.balanceOf(user), 0, "User's wrapped token balance should be zero after full withdrawal");
+        assertEq(mockToken.balanceOf(user), initialBalance, "User's mock token balance should return to initial amount");
     }
 }
