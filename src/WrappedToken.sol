@@ -9,12 +9,10 @@ import {IERC20Metadata} from "lib/openzeppelin-contracts/contracts/token/ERC20/e
 import {SafeERC20} from "lib/openzeppelin-contracts/contracts/token/ERC20/utils/SafeERC20.sol";
 import {Initializable} from "lib/openzeppelin-contracts-upgradeable/contracts/proxy/utils/Initializable.sol";
 import {Math} from "lib/openzeppelin-contracts/contracts/utils/math/Math.sol";
-import {AccessControlUpgradeable} from "lib/openzeppelin-contracts-upgradeable/contracts/access/AccessControlUpgradeable.sol";
-
+import {AccessControlUpgradeable} from
+    "lib/openzeppelin-contracts-upgradeable/contracts/access/AccessControlUpgradeable.sol";
 
 contract WrappedToken is Initializable, ERC4626Upgradeable, AccessControlUpgradeable {
-
-
     /**
      * @dev Role that allows recovering tokens accidentally sent to the contract
      */
@@ -108,7 +106,6 @@ contract WrappedToken is Initializable, ERC4626Upgradeable, AccessControlUpgrade
     }
 
     /// Storage ///
-
 
     struct TokenStorage {
         uint8 decimalsOffset;

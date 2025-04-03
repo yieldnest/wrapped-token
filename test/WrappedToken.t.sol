@@ -5,10 +5,17 @@ import {Test, console} from "forge-std/Test.sol";
 import {WrappedToken} from "../src/WrappedToken.sol";
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {TransparentUpgradeableProxy} from "@openzeppelin/contracts/proxy/transparent/TransparentUpgradeableProxy.sol";
 
 contract MockToken is ERC20 {
+    uint8 private _decimals = 6;
+
     constructor(string memory name, string memory symbol) ERC20(name, symbol) {
-        _mint(msg.sender, 1000 * 10 ** 18);
+        _mint(msg.sender, 100_000_000_000_000 * 10 ** _decimals);
+    }
+
+    function decimals() public view virtual override returns (uint8) {
+        return _decimals;
     }
 }
 
@@ -16,13 +23,28 @@ contract WrappedTokenTest is Test {
     WrappedToken public wrappedToken;
     MockToken public mockToken;
     address public user = address(1);
+    address public proxyOwner = address(1234567);
 
     function setUp() public {
         mockToken = new MockToken("Mock Token", "MTK");
-        wrappedToken = new WrappedToken(mockToken, "Wrapped Mock Token", "WMTK", 18);
+
+        // Deploy implementation
+        WrappedToken implementation = new WrappedToken();
+
+        // Deploy proxy with empty initialization data
+        TransparentUpgradeableProxy proxy =
+            new TransparentUpgradeableProxy(address(implementation), address(proxyOwner), "");
+
+        // Initialize the implementation through the proxy
+        WrappedToken(address(proxy)).initialize(
+            IERC20(address(mockToken)), "Wrapped Mock Token", "WMTK", 18, 18 - mockToken.decimals()
+        );
+
+        // Set up the wrapped token interface
+        wrappedToken = WrappedToken(address(proxy));
 
         // Give user some tokens
-        mockToken.transfer(user, 100 * 10 ** 18);
+        mockToken.transfer(user, 100_000_000_000 * 1e6);
 
         // Approve wrapped token to spend mock tokens
         vm.startPrank(user);
@@ -31,7 +53,7 @@ contract WrappedTokenTest is Test {
     }
 
     function test_Deposit() public {
-        uint256 depositAmount = 10 * 10 ** 18;
+        uint256 depositAmount = 10 * 10 ** 6;
         uint256 userInitialBalance = mockToken.balanceOf(user);
 
         vm.startPrank(user);
@@ -49,7 +71,7 @@ contract WrappedTokenTest is Test {
     }
 
     function test_Withdraw() public {
-        uint256 depositAmount = 10 * 10 ** 18;
+        uint256 depositAmount = 10 * 10 ** 6;
 
         // First deposit
         vm.startPrank(user);
@@ -68,11 +90,11 @@ contract WrappedTokenTest is Test {
     }
 
     function test_ConversionRates() public {
-        uint256 depositAmount = 10 * 10 ** 18;
+        uint256 depositAmount = 10 * 10 ** 6;
 
         // Check conversion rates before any deposits
-        assertEq(wrappedToken.convertToShares(depositAmount), depositAmount);
-        assertEq(wrappedToken.convertToAssets(depositAmount), depositAmount);
+        assertEq(wrappedToken.convertToShares(1e6), 1e18);
+        assertEq(wrappedToken.convertToAssets(1e18), 1e6);
 
         // Make a deposit
         vm.startPrank(user);
@@ -80,13 +102,13 @@ contract WrappedTokenTest is Test {
         vm.stopPrank();
 
         // Conversion rates should still be 1:1
-        assertEq(wrappedToken.convertToShares(depositAmount), depositAmount);
-        assertEq(wrappedToken.convertToAssets(depositAmount), depositAmount);
+        assertEq(wrappedToken.convertToShares(1e6), 1e18);
+        assertEq(wrappedToken.convertToAssets(1e18), 1e6);
     }
 
     function testFuzz_DepositWithdraw(uint256 amount) public {
         // Bound the amount to something reasonable
-        amount = bound(amount, 1, 100 * 10 ** 18);
+        amount = bound(amount, 1, 100 * 10 ** 6);
 
         vm.startPrank(user);
         uint256 sharesReceived = wrappedToken.deposit(amount, user);
