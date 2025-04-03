@@ -9,8 +9,15 @@ import {SafeERC20} from "lib/openzeppelin-contracts/contracts/token/ERC20/utils/
 import {Initializable} from "lib/openzeppelin-contracts-upgradeable/contracts/proxy/utils/Initializable.sol";
 
 contract WrappedToken is Initializable, ERC20Upgradeable {
-    IERC20 private _underlying;
-
+    struct TokenStorage {
+        IERC20 underlying;
+        uint8 decimals;
+        uint8 decimalsOffset;
+    }
+    
+    // keccak256(abi.encode(uint256(keccak256("WrappedToken.storage")) - 1)) & ~bytes32(uint256(0xff))
+    bytes32 private constant TOKEN_STORAGE_LOCATION = 0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382b00;
+    
     /**
      * @dev The underlying token couldn't be wrapped.
      */
@@ -20,38 +27,73 @@ contract WrappedToken is Initializable, ERC20Upgradeable {
     constructor() {
         _disableInitializers();
     }
+    
+    function _getTokenStorage() private pure returns (TokenStorage storage ts) {
+        bytes32 position = TOKEN_STORAGE_LOCATION;
+        assembly {
+            ts.slot := position
+        }
+    }
 
-    function initialize(IERC20 underlyingToken, string memory name, string memory symbol) public initializer {
+    function initialize(IERC20 underlyingToken, string memory name, string memory symbol, uint8 decimalsValue, uint8 decimalsOffset) public initializer {
         __ERC20_init(name, symbol);
         
         if (address(underlyingToken) == address(this)) {
             revert ERC20InvalidUnderlying(address(this));
         }
-        _underlying = underlyingToken;
+        
+        TokenStorage storage ts = _getTokenStorage();
+        ts.underlying = underlyingToken;
+        ts.decimals = decimalsValue;
+        ts.decimalsOffset = decimalsOffset;
     }
 
     /**
      * @dev See {ERC20-decimals}.
      */
     function decimals() public view virtual override returns (uint8) {
-        try IERC20Metadata(address(_underlying)).decimals() returns (uint8 value) {
-            return value;
-        } catch {
-            return super.decimals();
-        }
+        TokenStorage storage ts = _getTokenStorage();
+        return ts.decimals;
     }
 
     /**
      * @dev Returns the address of the underlying ERC-20 token that is being wrapped.
      */
     function underlying() public view returns (IERC20) {
-        return _underlying;
+        TokenStorage storage ts = _getTokenStorage();
+        return ts.underlying;
+    }
+
+    /**
+     * @dev Returns the decimals offset used for scaling deposits and withdrawals.
+     */
+    function decimalsOffset() public view returns (uint8) {
+        TokenStorage storage ts = _getTokenStorage();
+        return ts.decimalsOffset;
+    }
+
+    /**
+     * @dev Converts an amount from underlying token to wrapped token based on the decimals offset.
+     */
+    function _toWrappedAmount(uint256 underlyingAmount) internal view returns (uint256) {
+        TokenStorage storage ts = _getTokenStorage();
+        return underlyingAmount * (10 ** ts.decimalsOffset);
+    }
+
+    /**
+     * @dev Converts an amount from wrapped token to underlying token based on the decimals offset.
+     */
+    function _toUnderlyingAmount(uint256 wrappedAmount) internal view returns (uint256) {
+        TokenStorage storage ts = _getTokenStorage();
+        return wrappedAmount / (10 ** ts.decimalsOffset);
     }
 
     /**
      * @dev Allow a user to deposit underlying tokens and mint the corresponding number of wrapped tokens.
      */
     function depositFor(address account, uint256 value) public virtual returns (bool) {
+        TokenStorage storage ts = _getTokenStorage();
+        
         address sender = _msgSender();
         if (sender == address(this)) {
             revert ERC20InvalidSender(address(this));
@@ -59,8 +101,10 @@ contract WrappedToken is Initializable, ERC20Upgradeable {
         if (account == address(this)) {
             revert ERC20InvalidReceiver(account);
         }
-        SafeERC20.safeTransferFrom(_underlying, sender, address(this), value);
-        _mint(account, value);
+        
+        SafeERC20.safeTransferFrom(ts.underlying, sender, address(this), value);
+        uint256 wrappedAmount = _toWrappedAmount(value);
+        _mint(account, wrappedAmount);
         return true;
     }
 
@@ -68,11 +112,15 @@ contract WrappedToken is Initializable, ERC20Upgradeable {
      * @dev Allow a user to burn a number of wrapped tokens and withdraw the corresponding number of underlying tokens.
      */
     function withdrawTo(address account, uint256 value) public virtual returns (bool) {
+        TokenStorage storage ts = _getTokenStorage();
+        
         if (account == address(this)) {
             revert ERC20InvalidReceiver(account);
         }
+        
         _burn(_msgSender(), value);
-        SafeERC20.safeTransfer(_underlying, account, value);
+        uint256 underlyingAmount = _toUnderlyingAmount(value);
+        SafeERC20.safeTransfer(ts.underlying, account, underlyingAmount);
         return true;
     }
 
@@ -81,8 +129,18 @@ contract WrappedToken is Initializable, ERC20Upgradeable {
      * rebasing mechanisms. Internal function that can be exposed with access control if desired.
      */
     function _recover(address account) internal virtual returns (uint256) {
-        uint256 value = _underlying.balanceOf(address(this)) - totalSupply();
-        _mint(account, value);
-        return value;
+        TokenStorage storage ts = _getTokenStorage();
+        
+        uint256 underlyingBalance = ts.underlying.balanceOf(address(this));
+        uint256 expectedUnderlyingBalance = _toUnderlyingAmount(totalSupply());
+        
+        if (underlyingBalance > expectedUnderlyingBalance) {
+            uint256 underlyingExcess = underlyingBalance - expectedUnderlyingBalance;
+            uint256 wrappedExcess = _toWrappedAmount(underlyingExcess);
+            _mint(account, wrappedExcess);
+            return wrappedExcess;
+        }
+        
+        return 0;
     }
 }
