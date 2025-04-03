@@ -13,7 +13,6 @@ import {AccessControlUpgradeable} from
     "lib/openzeppelin-contracts-upgradeable/contracts/access/AccessControlUpgradeable.sol";
 
 contract WrappedToken is Initializable, ERC4626Upgradeable {
-
     /**
      * @dev The underlying token couldn't be wrapped.
      */
@@ -55,7 +54,7 @@ contract WrappedToken is Initializable, ERC4626Upgradeable {
     /**
      * @dev Converts an amount from underlying token to wrapped token based on the decimals offset.
      */
-    function _convertToShares(uint256 assets, Math.Rounding /* rounding */)
+    function _convertToShares(uint256 assets, Math.Rounding /* rounding */ )
         internal
         view
         virtual
