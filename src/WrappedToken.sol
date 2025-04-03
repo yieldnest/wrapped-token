@@ -12,11 +12,7 @@ import {Math} from "lib/openzeppelin-contracts/contracts/utils/math/Math.sol";
 import {AccessControlUpgradeable} from
     "lib/openzeppelin-contracts-upgradeable/contracts/access/AccessControlUpgradeable.sol";
 
-contract WrappedToken is Initializable, ERC4626Upgradeable, AccessControlUpgradeable {
-    /**
-     * @dev Role that allows recovering tokens accidentally sent to the contract
-     */
-    bytes32 public constant RECOVER_ROLE = keccak256("RECOVER_ROLE");
+contract WrappedToken is Initializable, ERC4626Upgradeable {
 
     /**
      * @dev The underlying token couldn't be wrapped.
@@ -41,11 +37,6 @@ contract WrappedToken is Initializable, ERC4626Upgradeable, AccessControlUpgrade
 
         __ERC4626_init(underlyingToken);
         __ERC20_init(name, symbol);
-        __AccessControl_init();
-
-        // Initialize roles
-        _grantRole(DEFAULT_ADMIN_ROLE, msg.sender);
-        _grantRole(RECOVER_ROLE, msg.sender);
 
         ERC4626Storage storage $ = getERC4626Storage();
         $._underlyingDecimals = decimalsValue;
@@ -64,7 +55,7 @@ contract WrappedToken is Initializable, ERC4626Upgradeable, AccessControlUpgrade
     /**
      * @dev Converts an amount from underlying token to wrapped token based on the decimals offset.
      */
-    function _convertToShares(uint256 assets, Math.Rounding rounding)
+    function _convertToShares(uint256 assets, Math.Rounding /* rounding */)
         internal
         view
         virtual
@@ -115,7 +106,7 @@ contract WrappedToken is Initializable, ERC4626Upgradeable, AccessControlUpgrade
     bytes32 private constant TokenStorageLocation = 0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382b00;
 
     function _getTokenStorage() internal pure returns (TokenStorage storage ts) {
-        bytes32 position = TOKEN_STORAGE_LOCATION;
+        bytes32 position = TokenStorageLocation;
         assembly {
             ts.slot := position
         }
