@@ -2,8 +2,6 @@
 pragma solidity ^0.8.0;
 
 import {ERC20Upgradeable} from "lib/openzeppelin-contracts-upgradeable/contracts/token/ERC20/ERC20Upgradeable.sol";
-import {ERC4626Upgradeable} from
-    "lib/openzeppelin-contracts-upgradeable/contracts/token/ERC20/extensions/ERC4626Upgradeable.sol";
 import {IERC20} from "lib/openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 import {IERC20Metadata} from "lib/openzeppelin-contracts/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import {SafeERC20} from "lib/openzeppelin-contracts/contracts/token/ERC20/utils/SafeERC20.sol";
@@ -12,17 +10,44 @@ import {Math} from "lib/openzeppelin-contracts/contracts/utils/math/Math.sol";
 import {AccessControlUpgradeable} from
     "lib/openzeppelin-contracts-upgradeable/contracts/access/AccessControlUpgradeable.sol";
 
-contract WrappedToken is Initializable, ERC4626Upgradeable {
+/**
+ * @title WrappedToken
+ * @dev A contract that wraps an underlying ERC20 token, allowing for decimal normalization
+ * between different tokens. This is useful for integrating tokens with varying decimal
+ * places into a unified system.
+ */
+contract WrappedToken is Initializable, ERC20Upgradeable {
     /**
      * @dev The underlying token couldn't be wrapped.
      */
     error ERC20InvalidUnderlying(address token);
+    /**
+     * @dev Emitted when `sender` deposits `amount` of underlying tokens,
+     * minting `shares` of wrapped tokens to `receiver`.
+     */
+
+    event Deposit(address indexed sender, address indexed receiver, uint256 amount, uint256 shares);
+
+    /**
+     * @dev Emitted when `sender` withdraws `amount` of underlying tokens to `receiver` by burning `shares` of wrapped tokens from `owner`.
+     */
+    event Withdraw(
+        address indexed sender, address indexed receiver, address indexed owner, uint256 amount, uint256 shares
+    );
 
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
         _disableInitializers();
     }
 
+    /**
+     * @dev Initializes the wrapped token with the underlying token and metadata.
+     * @param underlyingToken The token to be wrapped
+     * @param name The name of the wrapped token
+     * @param symbol The symbol of the wrapped token
+     * @param decimalsValue The number of decimals for the wrapped token
+     * @param tokenDecimalsOffset The decimal offset between underlying and wrapped token
+     */
     function initialize(
         IERC20 underlyingToken,
         string memory name,
@@ -34,33 +59,75 @@ contract WrappedToken is Initializable, ERC4626Upgradeable {
             revert ERC20InvalidUnderlying(address(this));
         }
 
-        __ERC4626_init(underlyingToken);
         __ERC20_init(name, symbol);
 
-        ERC4626Storage storage $ = getERC4626Storage();
-        $._underlyingDecimals = decimalsValue;
-
         TokenStorage storage ts = _getTokenStorage();
+        ts.underlyingToken = address(underlyingToken);
+        ts.decimals = decimalsValue;
         ts.decimalsOffset = tokenDecimalsOffset;
     }
 
     /**
-     * @dev See {ERC20-decimals}.
+     * @dev Deposits `amount` of the underlying token and mints wrapped tokens to `receiver`.
+     * @param amount The amount of underlying tokens to deposit.
+     * @param receiver The address that will receive the wrapped tokens.
+     * @return The amount of wrapped tokens minted.
      */
-    function decimals() public view virtual override(ERC4626Upgradeable) returns (uint8) {
-        return super.decimals();
+    function deposit(uint256 amount, address receiver) public returns (uint256) {
+        uint256 shares = _convertToShares(amount, Math.Rounding.Floor);
+
+        SafeERC20.safeTransferFrom(IERC20(asset()), msg.sender, address(this), amount);
+        _mint(receiver, shares);
+
+        emit Deposit(msg.sender, receiver, amount, shares);
+
+        return shares;
+    }
+
+    /**
+     * @dev Withdraws `amount` of the underlying token by burning wrapped tokens from `owner`.
+     * @param amount The amount of underlying tokens to withdraw.
+     * @param receiver The address that will receive the underlying tokens.
+     * @param owner The address whose wrapped tokens will be burned.
+     * @return The amount of wrapped tokens burned.
+     */
+    function withdraw(uint256 amount, address receiver, address owner) public returns (uint256) {
+        uint256 shares = _convertToShares(amount, Math.Rounding.Ceil);
+
+        if (msg.sender != owner) {
+            _spendAllowance(owner, msg.sender, shares);
+        }
+
+        _burn(owner, shares);
+        SafeERC20.safeTransfer(IERC20(asset()), receiver, amount);
+
+        emit Withdraw(msg.sender, receiver, owner, amount, shares);
+
+        return shares;
+    }
+
+    /**
+     * @dev Converts an amount of underlying assets to wrapped token shares.
+     * @param assets The amount of underlying assets to convert
+     * @return The equivalent amount of wrapped token shares
+     */
+    function convertToShares(uint256 assets) public view virtual returns (uint256) {
+        return _convertToShares(assets, Math.Rounding.Floor);
+    }
+
+    /**
+     * @dev Converts an amount of wrapped token shares to underlying assets.
+     * @param shares The amount of wrapped token shares to convert
+     * @return The equivalent amount of underlying assets
+     */
+    function convertToAssets(uint256 shares) public view virtual returns (uint256) {
+        return _convertToAssets(shares, Math.Rounding.Floor);
     }
 
     /**
      * @dev Converts an amount from underlying token to wrapped token based on the decimals offset.
      */
-    function _convertToShares(uint256 assets, Math.Rounding /* rounding */ )
-        internal
-        view
-        virtual
-        override
-        returns (uint256)
-    {
+    function _convertToShares(uint256 assets, Math.Rounding /* rounding */ ) internal view virtual returns (uint256) {
         TokenStorage storage ts = _getTokenStorage();
         return assets * (10 ** ts.decimalsOffset);
     }
@@ -68,13 +135,7 @@ contract WrappedToken is Initializable, ERC4626Upgradeable {
     /**
      * @dev Converts an amount from wrapped token to underlying token based on the decimals offset.
      */
-    function _convertToAssets(uint256 shares, Math.Rounding rounding)
-        internal
-        view
-        virtual
-        override
-        returns (uint256)
-    {
+    function _convertToAssets(uint256 shares, Math.Rounding rounding) internal view virtual returns (uint256) {
         TokenStorage storage ts = _getTokenStorage();
         return Math.mulDiv(shares, 1, 10 ** ts.decimalsOffset, rounding);
     }
@@ -82,22 +143,33 @@ contract WrappedToken is Initializable, ERC4626Upgradeable {
     /**
      * @dev Returns the decimals offset used for scaling deposits and withdrawals.
      */
-    function _decimalsOffset() internal view override returns (uint8) {
+    function decimalsOffset() internal view returns (uint8) {
         TokenStorage storage ts = _getTokenStorage();
         return ts.decimalsOffset;
     }
 
     /**
-     * @dev Returns the decimals offset used for scaling deposits and withdrawals.
-     * This is a public accessor for the internal _decimalsOffset function.
+     * @dev Returns the address of the underlying token.
+     * @return The address of the underlying token.
      */
-    function decimalsOffset() public view returns (uint8) {
-        return _decimalsOffset();
+    function asset() public view returns (address) {
+        TokenStorage storage ts = _getTokenStorage();
+        return ts.underlyingToken;
+    }
+
+    /**
+     * @dev See {ERC20-decimals}.
+     */
+    function decimals() public view virtual override(ERC20Upgradeable) returns (uint8) {
+        TokenStorage storage ts = _getTokenStorage();
+        return ts.decimals;
     }
 
     /// Storage ///
 
     struct TokenStorage {
+        address underlyingToken;
+        uint8 decimals;
         uint8 decimalsOffset;
     }
 
@@ -108,18 +180,6 @@ contract WrappedToken is Initializable, ERC4626Upgradeable {
         bytes32 position = TokenStorageLocation;
         assembly {
             ts.slot := position
-        }
-    }
-
-    /// ERC4626 Storage ///
-
-    // keccak256(abi.encode(uint256(keccak256("openzeppelin.storage.ERC4626")) - 1)) & ~bytes32(uint256(0xff))
-    bytes32 internal constant ERC4626StorageLocation =
-        0x0773e532dfede91f04b12a73d3d2acd361424f41f76b4fb79f090161e36b4e00;
-
-    function getERC4626Storage() internal pure returns (ERC4626Storage storage $) {
-        assembly {
-            $.slot := ERC4626StorageLocation
         }
     }
 }
