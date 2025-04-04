@@ -103,10 +103,9 @@ contract WrappedTokenTest is Test {
         );
 
         // Check that assets received match the original deposit (accounting for potential rounding)
-        assertApproxEqAbs(
+        assertEq(
             assetsReceived,
             depositAmount,
-            1,
             "Assets received should be approximately equal to amount deposited (within 1 unit)"
         );
     }
@@ -148,10 +147,9 @@ contract WrappedTokenTest is Test {
 
         // Verify that the conversion from shares to assets handles decimals correctly
         // The expected assets should be approximately depositAmount / 3 (accounting for potential rounding)
-        assertApproxEqAbs(
+        assertEq(
             assetsReceived,
             depositAmount / 3,
-            1,
             "Assets received should be approximately equal to 1/3 of deposit (within 1 unit)"
         );
     }
@@ -183,7 +181,7 @@ contract WrappedTokenTest is Test {
 
     function testFuzz_DepositRedeem(uint256 amount) public {
         // Bound the amount to something reasonable
-        amount = bound(amount, 1, 100_000_000 * 10 ** 6);
+        vm.assume(amount > 0 && amount <= 100_000_000 * 10 ** 6);
 
         vm.startPrank(user);
         uint256 sharesReceived = wrappedToken.deposit(amount, user);
@@ -196,11 +194,8 @@ contract WrappedTokenTest is Test {
         assertLe(assetsReceived, amount, "Assets received should not exceed the amount deposited");
 
         // Should get back the same amount (minus potential rounding)
-        assertApproxEqAbs(
-            assetsReceived,
-            amount,
-            1,
-            "Assets received should be approximately equal to amount deposited (within 1 unit)"
+        assertEq(
+            assetsReceived, amount, "Assets received should be approximately equal to amount deposited (within 1 unit)"
         );
     }
 }
