@@ -79,7 +79,7 @@ contract WrappedTokenTest is Test {
     }
 
     function test_Redeem() public {
-        uint256 depositAmount = 10 * 10 ** 6;
+        uint256 depositAmount = 10 * 1e6;
 
         // First deposit
         vm.startPrank(user);
@@ -108,6 +108,51 @@ contract WrappedTokenTest is Test {
             depositAmount,
             1,
             "Assets received should be approximately equal to amount deposited (within 1 unit)"
+        );
+    }
+
+    function test_RedeemWithPreciseDecimals() public {
+        // Deposit a round number
+        uint256 depositAmount = 10 * 1e6; // 10 tokens with 6 decimals
+
+        vm.startPrank(user);
+        uint256 sharesReceived = wrappedToken.deposit(depositAmount, user);
+
+        uint256 sharesToRedeem = sharesReceived / 3; // 3.333333333333333333
+
+        // Record balances before redemption
+        uint256 userInitialWrappedBalance = wrappedToken.balanceOf(user);
+        uint256 userInitialTokenBalance = mockToken.balanceOf(user);
+
+        // Redeem the precise amount
+        uint256 assetsReceived = wrappedToken.redeem(sharesToRedeem, user, user);
+        vm.stopPrank();
+
+        // Check wrapped token balance decreased by the correct amount
+        assertEq(
+            wrappedToken.balanceOf(user),
+            userInitialWrappedBalance - sharesToRedeem,
+            "User's wrapped token balance should decrease by the redeemed shares"
+        );
+
+        // Check underlying token balance increased
+        assertEq(
+            mockToken.balanceOf(user),
+            userInitialTokenBalance + assetsReceived,
+            "User should receive the correct amount of underlying tokens"
+        );
+
+        // Verify the conversion was done correctly
+        uint256 expectedAssets = sharesToRedeem * 1e6 / 1e18;
+        assertEq(assetsReceived, expectedAssets, "Assets received should match the expected conversion");
+
+        // Verify that the conversion from shares to assets handles decimals correctly
+        // The expected assets should be approximately depositAmount / 3 (accounting for potential rounding)
+        assertApproxEqAbs(
+            assetsReceived,
+            depositAmount / 3,
+            1,
+            "Assets received should be approximately equal to 1/3 of deposit (within 1 unit)"
         );
     }
 
