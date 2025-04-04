@@ -111,6 +111,9 @@ contract WrappedTokenTest is Test {
     }
 
     function test_RedeemWithPreciseDecimals() public {
+        // Record initial balance before any operations
+        uint256 userInitialBalance = mockToken.balanceOf(user);
+        
         // Deposit a round number
         uint256 depositAmount = 10 * 1e6; // 10 tokens with 6 decimals
 
@@ -118,7 +121,7 @@ contract WrappedTokenTest is Test {
         uint256 sharesReceived = wrappedToken.deposit(depositAmount, user);
 
         uint256 sharesToRedeem = sharesReceived / 3; // 3.333333333333333333
-
+        
         // Record balances before redemption
         uint256 userInitialWrappedBalance = wrappedToken.balanceOf(user);
         uint256 userInitialTokenBalance = mockToken.balanceOf(user);
@@ -126,6 +129,8 @@ contract WrappedTokenTest is Test {
         // Redeem the precise amount
         uint256 assetsReceived = wrappedToken.redeem(sharesToRedeem, user, user);
         vm.stopPrank();
+
+
 
         // Check wrapped token balance decreased by the correct amount
         assertEq(
@@ -151,6 +156,24 @@ contract WrappedTokenTest is Test {
             assetsReceived,
             depositAmount / 3,
             "Assets received should be approximately equal to 1/3 of deposit (within 1 unit)"
+        );
+        
+        // Verify that the sum of wrapped token supply and user's mock token balance
+        // is less than or equal to the initial balance
+        uint256 remainingWrappedValue = wrappedToken.balanceOf(user);
+        uint256 currentMockBalance = mockToken.balanceOf(user);
+
+        // Calculate the value of remaining wrapped tokens in terms of mock tokens
+        uint256 remainingWrappedValueInMockTokens = wrappedToken.convertToAssets(remainingWrappedValue);
+        
+        // Calculate the total value the user has (current mock balance + equivalent value of wrapped tokens)
+        uint256 totalUserValue = currentMockBalance + remainingWrappedValueInMockTokens;
+    
+        // Due to rounding down in the conversion, the total value should be at most 1 wei less than initial
+        assertEq(
+            totalUserValue,
+            userInitialBalance - 1,
+            "Total user value (mock tokens + wrapped value) should be 1 wei less than initial due to rounding"
         );
     }
 
