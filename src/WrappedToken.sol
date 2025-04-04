@@ -74,7 +74,7 @@ contract WrappedToken is Initializable, ERC20Upgradeable {
      * @return The amount of wrapped tokens minted.
      */
     function deposit(uint256 amount, address receiver) public returns (uint256) {
-        uint256 shares = _convertToShares(amount, Math.Rounding.Floor);
+        uint256 shares = convertToShares(amount);
 
         SafeERC20.safeTransferFrom(IERC20(asset()), msg.sender, address(this), amount);
         _mint(receiver, shares);
@@ -85,25 +85,25 @@ contract WrappedToken is Initializable, ERC20Upgradeable {
     }
 
     /**
-     * @dev Withdraws `amount` of the underlying token by burning wrapped tokens from `owner`.
-     * @param amount The amount of underlying tokens to withdraw.
+     * @dev Redeems `shares` of wrapped tokens and withdraws underlying tokens to `receiver`.
+     * @param shares The amount of wrapped tokens to redeem.
      * @param receiver The address that will receive the underlying tokens.
      * @param owner The address whose wrapped tokens will be burned.
-     * @return The amount of wrapped tokens burned.
+     * @return The amount of underlying tokens withdrawn.
      */
-    function withdraw(uint256 amount, address receiver, address owner) public returns (uint256) {
-        uint256 shares = _convertToShares(amount, Math.Rounding.Ceil);
+    function redeem(uint256 shares, address receiver, address owner) public returns (uint256) {
+        uint256 assets = convertToAssets(shares);
 
         if (msg.sender != owner) {
             _spendAllowance(owner, msg.sender, shares);
         }
 
         _burn(owner, shares);
-        SafeERC20.safeTransfer(IERC20(asset()), receiver, amount);
+        SafeERC20.safeTransfer(IERC20(asset()), receiver, assets);
 
-        emit Withdraw(msg.sender, receiver, owner, amount, shares);
+        emit Withdraw(msg.sender, receiver, owner, assets, shares);
 
-        return shares;
+        return assets;
     }
 
     /**
@@ -112,7 +112,8 @@ contract WrappedToken is Initializable, ERC20Upgradeable {
      * @return The equivalent amount of wrapped token shares
      */
     function convertToShares(uint256 assets) public view virtual returns (uint256) {
-        return _convertToShares(assets, Math.Rounding.Floor);
+        TokenStorage storage ts = _getTokenStorage();
+        return assets * (10 ** ts.decimalsOffset);
     }
 
     /**
@@ -121,23 +122,8 @@ contract WrappedToken is Initializable, ERC20Upgradeable {
      * @return The equivalent amount of underlying assets
      */
     function convertToAssets(uint256 shares) public view virtual returns (uint256) {
-        return _convertToAssets(shares, Math.Rounding.Floor);
-    }
-
-    /**
-     * @dev Converts an amount from underlying token to wrapped token based on the decimals offset.
-     */
-    function _convertToShares(uint256 assets, Math.Rounding /* rounding */ ) internal view virtual returns (uint256) {
         TokenStorage storage ts = _getTokenStorage();
-        return assets * (10 ** ts.decimalsOffset);
-    }
-
-    /**
-     * @dev Converts an amount from wrapped token to underlying token based on the decimals offset.
-     */
-    function _convertToAssets(uint256 shares, Math.Rounding rounding) internal view virtual returns (uint256) {
-        TokenStorage storage ts = _getTokenStorage();
-        return Math.mulDiv(shares, 1, 10 ** ts.decimalsOffset, rounding);
+        return Math.mulDiv(shares, 1, 10 ** ts.decimalsOffset, Math.Rounding.Floor);
     }
 
     /**

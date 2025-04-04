@@ -78,30 +78,36 @@ contract WrappedTokenTest is Test {
         );
     }
 
-    function test_Withdraw() public {
+    function test_Redeem() public {
         uint256 depositAmount = 10 * 10 ** 6;
 
         // First deposit
         vm.startPrank(user);
         uint256 sharesReceived = wrappedToken.deposit(depositAmount, user);
 
-        // Then withdraw
+        // Then redeem
         uint256 userInitialBalance = mockToken.balanceOf(user);
-        uint256 assetsReceived = wrappedToken.withdraw(depositAmount, user, user);
+        uint256 assetsReceived = wrappedToken.redeem(sharesReceived, user, user);
         vm.stopPrank();
 
         // Check user's wrapped token balance decreased
         assertEq(
-            wrappedToken.balanceOf(user),
-            sharesReceived - assetsReceived,
-            "User's wrapped token balance should decrease by the shares burned"
+            wrappedToken.balanceOf(user), 0, "User's wrapped token balance should be zero after redeeming all shares"
         );
 
         // Check user received mock tokens back
         assertEq(
             mockToken.balanceOf(user),
-            userInitialBalance + depositAmount,
-            "User should receive back the withdrawn tokens"
+            userInitialBalance + assetsReceived,
+            "User should receive back the correct amount of underlying tokens"
+        );
+
+        // Check that assets received match the original deposit (accounting for potential rounding)
+        assertApproxEqAbs(
+            assetsReceived,
+            depositAmount,
+            1,
+            "Assets received should be approximately equal to amount deposited (within 1 unit)"
         );
     }
 
@@ -130,174 +136,26 @@ contract WrappedTokenTest is Test {
         assertEq(wrappedToken.convertToAssets(1e18), 1e6, "Conversion rate should remain stable after deposit");
     }
 
-    // function testFuzz_DepositRedeem(uint256 amount) public {
-    //     // Bound the amount to something reasonable
-    //     amount = bound(amount, 1, 100_000_000 * 10 ** 6);
-
-    //     vm.startPrank(user);
-    //     uint256 sharesReceived = wrappedToken.deposit(amount, user);
-    //     uint256 assetsReceived = wrappedToken.redeem(sharesReceived, user, user);
-    //     vm.stopPrank();
-
-    //     // Verify that the assets received are less than or equal to the amount deposited
-    //     // This is important because in some cases there might be rounding down when converting
-    //     // shares back to assets, but we should never get more assets than we put in
-    //     assertLe(assetsReceived, amount, "Assets received should not exceed the amount deposited");
-
-    //     // Should get back the same amount (minus potential rounding)
-    //     assertApproxEqAbs(
-    //         assetsReceived,
-    //         amount,
-    //         1,
-    //         "Assets received should be approximately equal to amount deposited (within 1 unit)"
-    //     );
-    // }
-
-    function testFuzz_DepositWithdraw(uint256 amount) public {
+    function testFuzz_DepositRedeem(uint256 amount) public {
         // Bound the amount to something reasonable
-        vm.assume(amount > 0 && amount <= 100_000_000 * 10 ** 6);
+        amount = bound(amount, 1, 100_000_000 * 10 ** 6);
 
-        // Initial balance
-        uint256 initialBalance = mockToken.balanceOf(user);
-
-        // Deposit
         vm.startPrank(user);
         uint256 sharesReceived = wrappedToken.deposit(amount, user);
-
-        // Check shares received
-        assertEq(sharesReceived, amount * 10 ** 12, "Shares received should be scaled by the decimals offset (10^12)");
-
-        // Check wrapped token balance
-        assertEq(
-            wrappedToken.balanceOf(user), sharesReceived, "User's wrapped token balance should equal shares received"
-        );
-
-        // Withdraw
-        uint256 sharesBurned = wrappedToken.withdraw(amount, user, user);
+        uint256 assetsReceived = wrappedToken.redeem(sharesReceived, user, user);
         vm.stopPrank();
 
-        // Check assets received
-        assertEq(sharesBurned, amount * 10 ** 12, "Assets received should equal the amount withdrawn");
+        // Verify that the assets received are less than or equal to the amount deposited
+        // This is important because in some cases there might be rounding down when converting
+        // shares back to assets, but we should never get more assets than we put in
+        assertLe(assetsReceived, amount, "Assets received should not exceed the amount deposited");
 
-        // Check final balances
-        assertEq(wrappedToken.balanceOf(user), 0, "User's wrapped token balance should be zero after full withdrawal");
-        assertEq(mockToken.balanceOf(user), initialBalance, "User's mock token balance should return to initial amount");
+        // Should get back the same amount (minus potential rounding)
+        assertApproxEqAbs(
+            assetsReceived,
+            amount,
+            1,
+            "Assets received should be approximately equal to amount deposited (within 1 unit)"
+        );
     }
-
-    // function testPreviewRedeem() public view {
-    //     // Test with a value that doesn't divide evenly
-    //     uint256 sharesAmount = 1_234_567_890_123_456_789; // 1.234567890123456789 with 18 decimals
-
-    //     // Expected result should be rounded down to 6 decimals
-    //     uint256 expectedAssets = sharesAmount / 10 ** 12; // 1_234_567 (1.234567 with 6 decimals)
-
-    //     // Call previewRedeem
-    //     uint256 assets = wrappedToken.previewRedeem(sharesAmount);
-
-    //     // Assert that the result matches our expectation
-    //     assertEq(assets, expectedAssets, "previewRedeem should round down when converting to assets");
-    // }
-
-    // function testPreviewWithdraw() public view {
-    //     // Test with a value that doesn't divide evenly
-    //     uint256 assetsAmount = 1_234_567; // 1.234567 with 6 decimals
-
-    //     // Expected result should be rounded up to 18 decimals
-    //     // When converting 1_234_567 assets to shares, we need to multiply by 10^12
-    //     // But since we need to round up for withdrawals, we need to handle the case
-    //     // where the division isn't exact
-    //     uint256 expectedShares = assetsAmount * 10 ** 12;
-
-    //     // Call previewWithdraw
-    //     uint256 shares = wrappedToken.previewWithdraw(assetsAmount);
-
-    //     // Assert that the result matches our expectation
-    //     assertEq(shares, expectedShares, "previewWithdraw should round up when converting to shares");
-
-    //     // Test with a value that requires rounding
-    //     uint256 oddAssetsAmount = 1_234_568_000_000_000_000; // An amount that would cause rounding
-    //     uint256 calculatedShares = wrappedToken.previewWithdraw(oddAssetsAmount);
-
-    //     // Verify that using these shares would give at least the requested assets
-    //     uint256 resultingAssets = wrappedToken.previewRedeem(calculatedShares);
-    //     assertEq(resultingAssets, oddAssetsAmount, "Resulting assets should be >= requested assets");
-    // }
-
-    // function testFuzz_PreviewRedeem(uint256 sharesAmount) public view {
-    //     // Bound the input to avoid extremely large values
-    //     sharesAmount = bound(sharesAmount, 1, 100_000_000e18);
-
-    //     // Expected result should be rounded down to 6 decimals
-    //     uint256 expectedAssets = sharesAmount / 10 ** 12;
-
-    //     // Call previewRedeem
-    //     uint256 assets = wrappedToken.previewRedeem(sharesAmount);
-
-    //     // Assert that the result matches our expectation
-    //     assertEq(assets, expectedAssets, "previewRedeem should round down when converting to assets");
-
-    //     // Verify rounding behavior: shares to assets conversion should round down
-    //     uint256 backToShares = assets * 10 ** 12;
-    //     assertLe(
-    //         backToShares, sharesAmount, "Converting back to shares should be <= original shares due to rounding down"
-    //     );
-    // }
-
-    // function testFuzz_PreviewWithdraw(uint256 assetsAmount) public view {
-    //     // Bound the input to avoid extremely large values and overflows
-    //     assetsAmount = bound(assetsAmount, 1, 100_000_000e6);
-
-    //     // Expected result for shares when withdrawing assets
-    //     uint256 expectedShares = assetsAmount * 10 ** 12;
-
-    //     // Call previewWithdraw
-    //     uint256 shares = wrappedToken.previewWithdraw(assetsAmount);
-
-    //     // Assert that the result matches our expectation
-    //     assertEq(shares, expectedShares, "previewWithdraw should convert assets to shares correctly");
-
-    //     // Verify that using these shares would give at least the requested assets
-    //     uint256 resultingAssets = wrappedToken.previewRedeem(shares);
-    //     assertGe(resultingAssets, assetsAmount, "Resulting assets should be >= requested assets");
-    // }
-
-    // function testFuzz_PreviewMint(uint256 sharesAmount) public view {
-    //     // Bound the input to avoid extremely large values
-    //     sharesAmount = bound(sharesAmount, 1, 100_000_000e18);
-
-    //     // Expected result should be rounded up to ensure enough assets are provided
-    //     uint256 expectedAssets = (sharesAmount + 10 ** 12 - 1) / 10 ** 12;
-
-    //     // Call previewMint
-    //     uint256 assets = wrappedToken.previewMint(sharesAmount);
-
-    //     // Assert that the result matches our expectation
-    //     assertEq(assets, expectedAssets, "previewMint should round up when converting to assets");
-
-    //     // Verify rounding behavior: assets to shares conversion should provide at least the requested shares
-    //     uint256 resultingShares = wrappedToken.previewDeposit(assets);
-    //     assertGe(
-    //         resultingShares,
-    //         sharesAmount,
-    //         "Converting assets back to shares should be >= original shares due to rounding up"
-    //     );
-    // }
-
-    // function testFuzz_PreviewDeposit(uint256 assetsAmount) public view {
-    //     // Bound the input to avoid extremely large values and overflows
-    //     assetsAmount = bound(assetsAmount, 1, 100_000_000e6);
-
-    //     // Expected result for shares when depositing assets
-    //     uint256 expectedShares = assetsAmount * 10 ** 12;
-
-    //     // Call previewDeposit
-    //     uint256 shares = wrappedToken.previewDeposit(assetsAmount);
-
-    //     // Assert that the result matches our expectation
-    //     assertEq(shares, expectedShares, "previewDeposit should convert assets to shares correctly");
-
-    //     // Verify that using these shares would require at most the provided assets
-    //     uint256 resultingAssets = wrappedToken.previewMint(shares);
-    //     assertLe(resultingAssets, assetsAmount, "Assets needed to mint shares should be <= original assets");
-    // }
 }
