@@ -20,10 +20,10 @@ contract ERC4626Adapter is Initializable, ERC20Upgradeable, ReentrancyGuardUpgra
 
     // The ERC4626 vault this adapter interacts with
     IERC4626 public vault;
-    
+
     // The wrapped token used as the vault's asset
     IWrappedToken public wrappedToken;
-    
+
     // The underlying token of the wrapped token
     IERC20 public underlyingToken;
 
@@ -31,29 +31,29 @@ contract ERC4626Adapter is Initializable, ERC20Upgradeable, ReentrancyGuardUpgra
      * @dev Emitted when assets are deposited into the adapter
      */
     event Deposit(address indexed caller, address indexed owner, uint256 assets, uint256 shares);
-    
+
     /**
      * @dev Emitted when assets are withdrawn from the adapter
      */
-    event Withdraw(address indexed caller, address indexed receiver, address indexed owner, uint256 assets, uint256 shares);
+    event Withdraw(
+        address indexed caller, address indexed receiver, address indexed owner, uint256 assets, uint256 shares
+    );
 
     /**
      * @dev Initializes the adapter with the vault and wrapped token
      * @param _vault The ERC4626 vault to interact with
      * @param _wrappedToken The wrapped token used as the vault's asset
      */
-    function initialize(
-        IERC4626 _vault,
-        IWrappedToken _wrappedToken,
-        string memory name,
-        string memory symbol
-    ) public initializer {
+    function initialize(IERC4626 _vault, IWrappedToken _wrappedToken, string memory name, string memory symbol)
+        public
+        initializer
+    {
         __ERC20_init(name, symbol);
         __ReentrancyGuard_init();
-        
+
         // Verify that the wrapped token is the vault's asset
         require(address(_wrappedToken) == _vault.asset(), "Wrapped token must be vault's asset");
-        
+
         vault = _vault;
         wrappedToken = _wrappedToken;
         underlyingToken = IERC20(_wrappedToken.asset());
@@ -72,22 +72,22 @@ contract ERC4626Adapter is Initializable, ERC20Upgradeable, ReentrancyGuardUpgra
 
         // Transfer underlying tokens from user to this contract
         underlyingToken.safeTransferFrom(msg.sender, address(this), assets);
-        
+
         // Approve underlying tokens to wrapped token
         underlyingToken.forceApprove(address(wrappedToken), assets);
-        
+
         // Deposit underlying into wrapped token
         uint256 wrappedShares = wrappedToken.deposit(assets, address(this));
-        
+
         // Approve wrapped tokens to vault
         IERC20(address(wrappedToken)).forceApprove(address(vault), wrappedShares);
-        
+
         // Deposit wrapped tokens into vault
         vault.deposit(wrappedShares, address(this));
-        
+
         // Mint adapter shares to receiver
         _mint(receiver, shares);
-        
+
         emit Deposit(msg.sender, receiver, assets, shares);
         return shares;
     }
@@ -101,30 +101,30 @@ contract ERC4626Adapter is Initializable, ERC20Upgradeable, ReentrancyGuardUpgra
      */
     function redeem(uint256 shares, address receiver, address owner) public nonReentrant returns (uint256 assets) {
         require(shares > 0, "Cannot redeem 0 shares");
-        
+
         // If caller is not the owner, check allowance
         if (msg.sender != owner) {
             _spendAllowance(owner, msg.sender, shares);
         }
-        
+
         // Calculate assets to withdraw
         assets = previewRedeem(shares);
-        
+
         // Burn adapter shares
         _burn(owner, shares);
-        
+
         // Calculate vault shares to redeem
         uint256 vaultShares = _convertAdapterSharesToVaultShares(shares);
-        
+
         // Redeem wrapped tokens from vault
         uint256 wrappedAmount = vault.redeem(vaultShares, address(this), address(this));
-        
+
         // Redeem underlying tokens from wrapped token
         uint256 underlyingAmount = wrappedToken.redeem(wrappedAmount, receiver, address(this));
-        
+
         // Verify expected amount was received
         require(underlyingAmount >= assets, "Insufficient underlying tokens received");
-        
+
         emit Withdraw(msg.sender, receiver, owner, assets, shares);
         return assets;
     }
@@ -138,30 +138,30 @@ contract ERC4626Adapter is Initializable, ERC20Upgradeable, ReentrancyGuardUpgra
      */
     function withdraw(uint256 assets, address receiver, address owner) public nonReentrant returns (uint256 shares) {
         require(assets > 0, "Cannot withdraw 0 assets");
-        
+
         // Calculate shares to burn
         shares = previewWithdraw(assets);
-        
+
         // If caller is not the owner, check allowance
         if (msg.sender != owner) {
             _spendAllowance(owner, msg.sender, shares);
         }
-        
+
         // Burn adapter shares
         _burn(owner, shares);
-        
+
         // Calculate vault shares to redeem
         uint256 vaultShares = _convertAdapterSharesToVaultShares(shares);
-        
+
         // Withdraw wrapped tokens from vault
         uint256 wrappedAmount = vault.redeem(vaultShares, address(this), address(this));
-        
+
         // Redeem underlying tokens from wrapped token
         uint256 underlyingAmount = wrappedToken.redeem(wrappedAmount, receiver, address(this));
-        
+
         // Verify expected amount was received
         require(underlyingAmount >= assets, "Insufficient underlying tokens received");
-        
+
         emit Withdraw(msg.sender, receiver, owner, assets, shares);
         return shares;
     }
@@ -175,13 +175,13 @@ contract ERC4626Adapter is Initializable, ERC20Upgradeable, ReentrancyGuardUpgra
         if (totalSupply() == 0) {
             return assets;
         }
-        
+
         // Convert underlying to wrapped tokens
         uint256 wrappedAmount = wrappedToken.convertToShares(assets);
-        
+
         // Convert wrapped tokens to vault shares
         uint256 vaultShares = vault.convertToShares(wrappedAmount);
-        
+
         // Convert vault shares to adapter shares
         return _convertVaultSharesToAdapterShares(vaultShares);
     }
@@ -195,13 +195,13 @@ contract ERC4626Adapter is Initializable, ERC20Upgradeable, ReentrancyGuardUpgra
         if (totalSupply() == 0) {
             return 0;
         }
-        
+
         // Convert adapter shares to vault shares
         uint256 vaultShares = _convertAdapterSharesToVaultShares(shares);
-        
+
         // Convert vault shares to wrapped tokens
         uint256 wrappedAmount = vault.convertToAssets(vaultShares);
-        
+
         // Convert wrapped tokens to underlying tokens
         return wrappedToken.convertToAssets(wrappedAmount);
     }
@@ -215,13 +215,13 @@ contract ERC4626Adapter is Initializable, ERC20Upgradeable, ReentrancyGuardUpgra
         if (totalSupply() == 0) {
             return 0;
         }
-        
+
         // Convert underlying to wrapped tokens
         uint256 wrappedAmount = wrappedToken.convertToShares(assets);
-        
+
         // Convert wrapped tokens to vault shares
         uint256 vaultShares = vault.convertToShares(wrappedAmount);
-        
+
         // Convert vault shares to adapter shares
         return _convertVaultSharesToAdapterShares(vaultShares);
     }
