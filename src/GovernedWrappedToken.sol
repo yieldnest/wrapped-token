@@ -11,7 +11,6 @@ import {SafeERC20} from "lib/openzeppelin-contracts/contracts/token/ERC20/utils/
  * underlying tokens out of the contract for management purposes.
  */
 contract GovernedWrappedToken is WrappedToken {
-
     /**
      * @dev Error thrown when a zero address is provided where a valid address is required.
      */
