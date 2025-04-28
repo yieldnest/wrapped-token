@@ -16,7 +16,7 @@ import {AccessControlUpgradeable} from
  * between different tokens. This is useful for integrating tokens with varying decimal
  * places into a unified system.
  */
-contract WrappedToken is Initializable, ERC20Upgradeable {
+contract WrappedToken is Initializable, ERC20Upgradeable, AccessControlUpgradeable {
     /**
      * @dev The underlying token couldn't be wrapped.
      */
@@ -35,6 +35,9 @@ contract WrappedToken is Initializable, ERC20Upgradeable {
         address indexed sender, address indexed receiver, address indexed owner, uint256 amount, uint256 shares
     );
 
+    // Role for allocators who can manage token allocations
+    bytes32 public constant ALLOCATOR_ROLE = keccak256("ALLOCATOR_ROLE");
+
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
         _disableInitializers();
@@ -47,24 +50,33 @@ contract WrappedToken is Initializable, ERC20Upgradeable {
      * @param symbol The symbol of the wrapped token
      * @param decimalsValue The number of decimals for the wrapped token
      * @param tokenDecimalsOffset The decimal offset between underlying and wrapped token
+     * @param admin The address that will be granted the admin role
+     * @param hasAllocator Whether the admin should also have the allocator role
      */
     function initialize(
         IERC20 underlyingToken,
         string memory name,
         string memory symbol,
         uint8 decimalsValue,
-        uint8 tokenDecimalsOffset
+        uint8 tokenDecimalsOffset,
+        address admin,
+        bool hasAllocator
     ) public initializer {
         if (address(underlyingToken) == address(this)) {
             revert ERC20InvalidUnderlying(address(this));
         }
 
         __ERC20_init(name, symbol);
+        __AccessControl_init();
+
+        // Set up roles
+        _grantRole(DEFAULT_ADMIN_ROLE, admin);
 
         TokenStorage storage ts = _getTokenStorage();
         ts.underlyingToken = address(underlyingToken);
         ts.decimals = decimalsValue;
         ts.decimalsOffset = tokenDecimalsOffset;
+        ts.hasAllocator = hasAllocator;
     }
 
     /**
@@ -151,12 +163,40 @@ contract WrappedToken is Initializable, ERC20Upgradeable {
         return ts.decimals;
     }
 
+    /**
+     * @dev Modifier to restrict function access to accounts with the allocator role.
+     * Reverts if the caller does not have the allocator role.
+     */
+    modifier onlyAllocator() {
+        TokenStorage storage ts = _getTokenStorage();
+
+        if (ts.hasAllocator) {
+            _checkRole(ALLOCATOR_ROLE);
+        }
+        _;
+    }
+
+    /// Views ///
+
+    /**
+     * @dev Returns the backing information of the wrapped token.
+     * @return totalWrappedInUnderlying The total value of wrapped tokens in terms of the underlying token
+     * @return actualUnderlying The actual balance of underlying tokens held by the contract
+     */
+    function backing() public view returns (uint256 totalWrappedInUnderlying, uint256 actualUnderlying) {
+        totalWrappedInUnderlying = convertToAssets(totalSupply());
+        actualUnderlying = IERC20(asset()).balanceOf(address(this));
+
+        return (totalWrappedInUnderlying, actualUnderlying);
+    }
+
     /// Storage ///
 
     struct TokenStorage {
         address underlyingToken;
         uint8 decimals;
         uint8 decimalsOffset;
+        bool hasAllocator;
     }
 
     // keccak256(abi.encode(uint256(keccak256("WrappedToken.storage")) - 1)) & ~bytes32(uint256(0xff))
