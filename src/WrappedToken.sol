@@ -35,6 +35,11 @@ contract WrappedToken is Initializable, ERC20Upgradeable, AccessControlUpgradeab
         address indexed sender, address indexed receiver, address indexed owner, uint256 amount, uint256 shares
     );
 
+    /**
+     * @dev Emitted when the allocator status is changed.
+     */
+    event AllocatorStatusChanged(bool hasAllocator);
+
     // Role for allocators who can manage token allocations
     bytes32 public constant ALLOCATOR_ROLE = keccak256("ALLOCATOR_ROLE");
 
@@ -51,7 +56,7 @@ contract WrappedToken is Initializable, ERC20Upgradeable, AccessControlUpgradeab
      * @param decimalsValue The number of decimals for the wrapped token
      * @param tokenDecimalsOffset The decimal offset between underlying and wrapped token
      * @param admin The address that will be granted the admin role
-     * @param hasAllocator Whether the admin should also have the allocator role
+     * @param _hasAllocator Whether the admin should also have the allocator role
      */
     function initialize(
         IERC20 underlyingToken,
@@ -60,7 +65,7 @@ contract WrappedToken is Initializable, ERC20Upgradeable, AccessControlUpgradeab
         uint8 decimalsValue,
         uint8 tokenDecimalsOffset,
         address admin,
-        bool hasAllocator
+        bool _hasAllocator
     ) public initializer {
         if (address(underlyingToken) == address(this)) {
             revert ERC20InvalidUnderlying(address(this));
@@ -76,7 +81,7 @@ contract WrappedToken is Initializable, ERC20Upgradeable, AccessControlUpgradeab
         ts.underlyingToken = address(underlyingToken);
         ts.decimals = decimalsValue;
         ts.decimalsOffset = tokenDecimalsOffset;
-        ts.hasAllocator = hasAllocator;
+        ts.hasAllocator = _hasAllocator;
     }
 
     /**
@@ -176,6 +181,20 @@ contract WrappedToken is Initializable, ERC20Upgradeable, AccessControlUpgradeab
         _;
     }
 
+    /// Admin ///
+
+    /**
+     * @dev Sets whether the contract has an allocator role enabled.
+     * @param _hasAllocator True to enable the allocator role, false to disable it.
+     * @notice Only callable by the admin role.
+     */
+    function setHasAllocator(bool _hasAllocator) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        TokenStorage storage ts = _getTokenStorage();
+        ts.hasAllocator = _hasAllocator;
+
+        emit AllocatorStatusChanged(_hasAllocator);
+    }
+
     /// Views ///
 
     /**
@@ -188,6 +207,15 @@ contract WrappedToken is Initializable, ERC20Upgradeable, AccessControlUpgradeab
         actualUnderlying = IERC20(asset()).balanceOf(address(this));
 
         return (totalWrappedInUnderlying, actualUnderlying);
+    }
+
+    /**
+     * @dev Returns whether the contract has an allocator role enabled.
+     * @return True if the contract has an allocator role, false otherwise.
+     */
+    function hasAllocator() public view returns (bool) {
+        TokenStorage storage ts = _getTokenStorage();
+        return ts.hasAllocator;
     }
 
     /// Storage ///
