@@ -11,6 +11,12 @@ import {SafeERC20} from "lib/openzeppelin-contracts/contracts/token/ERC20/utils/
  * underlying tokens out of the contract for management purposes.
  */
 contract GovernedWrappedToken is WrappedToken {
+
+    /**
+     * @dev Error thrown when a zero address is provided where a valid address is required.
+     */
+    error ZeroAddress();
+
     /**
      * @dev Role for governors who can manage token allocations
      */
@@ -28,15 +34,7 @@ contract GovernedWrappedToken is WrappedToken {
      * @param amount The amount of underlying tokens to transfer
      */
     function withdrawUnderlying(address recipient, uint256 amount) external onlyRole(GOVERNOR_ROLE) {
-        require(recipient != address(0), "Cannot allocate to zero address");
-
-        // Get current backing information
-        (uint256 totalWrappedInUnderlying, uint256 actualUnderlying) = backing();
-
-        // Ensure there are enough excess tokens to allocate
-        require(actualUnderlying >= totalWrappedInUnderlying, "Insufficient backing");
-        uint256 excessTokens = actualUnderlying - totalWrappedInUnderlying;
-        require(amount <= excessTokens, "Allocation exceeds available excess");
+        if (recipient == address(0)) revert ZeroAddress();
 
         // Transfer the tokens to the recipient
         SafeERC20.safeTransfer(IERC20(asset()), recipient, amount);
