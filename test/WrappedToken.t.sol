@@ -37,7 +37,7 @@ contract WrappedTokenTest is Test {
 
         // Initialize the implementation through the proxy
         WrappedToken(address(proxy)).initialize(
-            IERC20(address(mockToken)), "Wrapped Mock Token", "WMTK", 18, 18 - mockToken.decimals(), proxyOwner, false
+            IERC20(address(mockToken)), "Wrapped Mock Token", "WMTK", 18, 18 - mockToken.decimals()
         );
 
         // Set up the wrapped token interface

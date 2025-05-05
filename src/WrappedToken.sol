@@ -7,8 +7,6 @@ import {IERC20Metadata} from "lib/openzeppelin-contracts/contracts/token/ERC20/e
 import {SafeERC20} from "lib/openzeppelin-contracts/contracts/token/ERC20/utils/SafeERC20.sol";
 import {Initializable} from "lib/openzeppelin-contracts-upgradeable/contracts/proxy/utils/Initializable.sol";
 import {Math} from "lib/openzeppelin-contracts/contracts/utils/math/Math.sol";
-import {AccessControlUpgradeable} from
-    "lib/openzeppelin-contracts-upgradeable/contracts/access/AccessControlUpgradeable.sol";
 
 /**
  * @title WrappedToken
@@ -16,7 +14,7 @@ import {AccessControlUpgradeable} from
  * between different tokens. This is useful for integrating tokens with varying decimal
  * places into a unified system.
  */
-contract WrappedToken is Initializable, ERC20Upgradeable, AccessControlUpgradeable {
+contract WrappedToken is Initializable, ERC20Upgradeable {
     /**
      * @dev The underlying token couldn't be wrapped.
      */
@@ -55,33 +53,34 @@ contract WrappedToken is Initializable, ERC20Upgradeable, AccessControlUpgradeab
      * @param symbol The symbol of the wrapped token
      * @param decimalsValue The number of decimals for the wrapped token
      * @param tokenDecimalsOffset The decimal offset between underlying and wrapped token
-     * @param admin The address that will be granted the admin role
-     * @param _hasAllocator Whether the admin should also have the allocator role
      */
     function initialize(
         IERC20 underlyingToken,
         string memory name,
         string memory symbol,
         uint8 decimalsValue,
-        uint8 tokenDecimalsOffset,
-        address admin,
-        bool _hasAllocator
-    ) public initializer {
+        uint8 tokenDecimalsOffset
+    ) public virtual initializer {
+        _initialize(underlyingToken, name, symbol, decimalsValue, tokenDecimalsOffset);
+    }
+
+    function _initialize(
+        IERC20 underlyingToken,
+        string memory name,
+        string memory symbol,
+        uint8 decimalsValue,
+        uint8 tokenDecimalsOffset
+    ) internal {
         if (address(underlyingToken) == address(this)) {
             revert ERC20InvalidUnderlying(address(this));
         }
 
         __ERC20_init(name, symbol);
-        __AccessControl_init();
-
-        // Set up roles
-        _grantRole(DEFAULT_ADMIN_ROLE, admin);
 
         TokenStorage storage ts = _getTokenStorage();
         ts.underlyingToken = address(underlyingToken);
         ts.decimals = decimalsValue;
         ts.decimalsOffset = tokenDecimalsOffset;
-        ts.hasAllocator = _hasAllocator;
     }
 
     /**
@@ -168,33 +167,6 @@ contract WrappedToken is Initializable, ERC20Upgradeable, AccessControlUpgradeab
         return ts.decimals;
     }
 
-    /**
-     * @dev Modifier to restrict function access to accounts with the allocator role.
-     * Reverts if the caller does not have the allocator role.
-     */
-    modifier onlyAllocator() {
-        TokenStorage storage ts = _getTokenStorage();
-
-        if (ts.hasAllocator) {
-            _checkRole(ALLOCATOR_ROLE);
-        }
-        _;
-    }
-
-    /// Admin ///
-
-    /**
-     * @dev Sets whether the contract has an allocator role enabled.
-     * @param _hasAllocator True to enable the allocator role, false to disable it.
-     * @notice Only callable by the admin role.
-     */
-    function setHasAllocator(bool _hasAllocator) external onlyRole(DEFAULT_ADMIN_ROLE) {
-        TokenStorage storage ts = _getTokenStorage();
-        ts.hasAllocator = _hasAllocator;
-
-        emit AllocatorStatusChanged(_hasAllocator);
-    }
-
     /// Views ///
 
     /**
@@ -209,22 +181,12 @@ contract WrappedToken is Initializable, ERC20Upgradeable, AccessControlUpgradeab
         return (totalWrappedInUnderlying, actualUnderlying);
     }
 
-    /**
-     * @dev Returns whether the contract has an allocator role enabled.
-     * @return True if the contract has an allocator role, false otherwise.
-     */
-    function hasAllocator() public view returns (bool) {
-        TokenStorage storage ts = _getTokenStorage();
-        return ts.hasAllocator;
-    }
-
     /// Storage ///
 
     struct TokenStorage {
         address underlyingToken;
         uint8 decimals;
         uint8 decimalsOffset;
-        bool hasAllocator;
     }
 
     // keccak256(abi.encode(uint256(keccak256("WrappedToken.storage")) - 1)) & ~bytes32(uint256(0xff))
