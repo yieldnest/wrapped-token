@@ -20,7 +20,7 @@ contract MockToken is ERC20 {
     }
 }
 
-contract WrappedTokenTest_6Decimals_Underlying is Test {
+abstract contract WrappedTokenTestBase is Test {
     WrappedToken public wrappedToken;
     MockToken public mockToken;
     address public user = address(1);
@@ -28,9 +28,7 @@ contract WrappedTokenTest_6Decimals_Underlying is Test {
 
     uint256 public underlyingUnit;
 
-    function underlyingDecimals() public pure returns (uint8) {
-        return 6;
-    }
+    function underlyingDecimals() public pure virtual returns (uint8);
 
     function setUp() public {
         mockToken = new MockToken("Mock Token", "MTK", underlyingDecimals());
@@ -284,8 +282,12 @@ contract WrappedTokenTest_6Decimals_Underlying is Test {
         vm.stopPrank();
 
         // Conversion rates should still be 1:1 regardless of deposit amount
-        assertEq(wrappedToken.convertToShares(underlyingUnit), 1e18, "Conversion rate should remain stable after deposit");
-        assertEq(wrappedToken.convertToAssets(1e18), underlyingUnit, "Conversion rate should remain stable after deposit");
+        assertEq(
+            wrappedToken.convertToShares(underlyingUnit), 1e18, "Conversion rate should remain stable after deposit"
+        );
+        assertEq(
+            wrappedToken.convertToAssets(1e18), underlyingUnit, "Conversion rate should remain stable after deposit"
+        );
     }
 
     function testFuzz_DepositRedeem(uint256 amount) public {
