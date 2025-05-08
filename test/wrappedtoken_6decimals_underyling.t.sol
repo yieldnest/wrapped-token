@@ -188,6 +188,14 @@ contract WrappedTokenTest_6Decimals_Underlying is Test {
             1,
             "Total user value (mock tokens + wrapped value) should be approximately equal to initial (within 1 unit)"
         );
+        
+        // Verify that the total user value is less than or equal to the initial balance
+        // This is important because conversions can only round down, never up
+        assertLe(
+            totalUserValue,
+            userInitialBalance,
+            "Total user value should not exceed the initial balance due to rounding down in conversions"
+        );
     }
 
     function testFuzz_ConversionRates(uint256 depositAmount) public {
@@ -216,7 +224,7 @@ contract WrappedTokenTest_6Decimals_Underlying is Test {
         assertEq(wrappedToken.convertToAssets(1e18), 1e6, "Conversion rate should remain stable after deposit");
     }
 
-        function testFuzz_DepositRedeem(uint256 amount) public {
+    function testFuzz_DepositRedeem(uint256 amount) public {
         // Bound the amount to something reasonable
         vm.assume(amount > 0 && amount <= 100_000_000 * 10 ** 6);
 
