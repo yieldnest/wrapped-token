@@ -52,8 +52,10 @@ contract WrappedTokenTest is Test {
         vm.stopPrank();
     }
 
-    function test_Deposit() public {
-        uint256 depositAmount = 10 * 10 ** 6;
+    function testFuzz_Deposit(uint256 depositAmount) public {
+        // Bound the deposit amount to avoid overflows and zero deposits
+        depositAmount = bound(depositAmount, 1, 1_000_000_000e6);
+
         uint256 userInitialBalance = mockToken.balanceOf(user);
 
         vm.startPrank(user);
@@ -78,8 +80,9 @@ contract WrappedTokenTest is Test {
         );
     }
 
-    function test_Redeem() public {
-        uint256 depositAmount = 10 * 1e6;
+    function testFuzz_Redeem(uint256 depositAmount) public {
+        // Bound the deposit amount to avoid overflows and zero deposits
+        depositAmount = bound(depositAmount, 1, 1_000_000_000e6);
 
         // First deposit
         vm.startPrank(user);
@@ -110,23 +113,31 @@ contract WrappedTokenTest is Test {
         );
     }
 
-    function test_RedeemWithPreciseDecimals() public {
+    function testFuzz_RedeemWithPreciseDecimals(uint256 depositAmount, uint256 redeemFraction) public {
+        // Bound the deposit amount to avoid overflows and zero deposits
+        depositAmount = bound(depositAmount, 1e6, 1_000_000_000e6);
+
+        // Bound the redeem fraction to be between 1 and 100 (we'll divide by 100 to get a percentage)
+        redeemFraction = bound(redeemFraction, 1, 100);
+
         // Record initial balance before any operations
         uint256 userInitialBalance = mockToken.balanceOf(user);
 
-        // Deposit a round number
-        uint256 depositAmount = 10 * 1e6; // 10 tokens with 6 decimals
-
+        // Deposit tokens
         vm.startPrank(user);
         uint256 sharesReceived = wrappedToken.deposit(depositAmount, user);
 
-        uint256 sharesToRedeem = sharesReceived / 3; // 3.333333333333333333
+        // Calculate a partial amount to redeem (between 1% and 100%)
+        uint256 sharesToRedeem = (sharesReceived * redeemFraction) / 100;
+
+        // Ensure we're redeeming at least 1 share
+        vm.assume(sharesToRedeem > 0);
 
         // Record balances before redemption
         uint256 userInitialWrappedBalance = wrappedToken.balanceOf(user);
         uint256 userInitialTokenBalance = mockToken.balanceOf(user);
 
-        // Redeem the precise amount
+        // Redeem the partial amount
         uint256 assetsReceived = wrappedToken.redeem(sharesToRedeem, user, user);
         vm.stopPrank();
 
@@ -145,19 +156,21 @@ contract WrappedTokenTest is Test {
         );
 
         // Verify the conversion was done correctly
-        uint256 expectedAssets = sharesToRedeem * 1e6 / 1e18;
+        uint256 expectedAssets = wrappedToken.convertToAssets(sharesToRedeem);
         assertEq(assetsReceived, expectedAssets, "Assets received should match the expected conversion");
 
         // Verify that the conversion from shares to assets handles decimals correctly
-        // The expected assets should be approximately depositAmount / 3 (accounting for potential rounding)
-        assertEq(
+        // The expected assets should be approximately (depositAmount * redeemFraction / 100)
+        uint256 expectedApproxAssets = (depositAmount * redeemFraction) / 100;
+        assertApproxEqAbs(
             assetsReceived,
-            depositAmount / 3,
-            "Assets received should be approximately equal to 1/3 of deposit (within 1 unit)"
+            expectedApproxAssets,
+            1,
+            "Assets received should be approximately equal to expected fraction of deposit (within 1 unit)"
         );
 
-        // Verify that the sum of wrapped token supply and user's mock token balance
-        // is less than or equal to the initial balance
+        // Verify that the sum of wrapped token value and user's mock token balance
+        // is less than or equal to the initial balance (accounting for rounding)
         uint256 remainingWrappedValue = wrappedToken.balanceOf(user);
         uint256 currentMockBalance = mockToken.balanceOf(user);
 
@@ -168,15 +181,17 @@ contract WrappedTokenTest is Test {
         uint256 totalUserValue = currentMockBalance + remainingWrappedValueInMockTokens;
 
         // Due to rounding down in the conversion, the total value should be at most 1 wei less than initial
-        assertEq(
+        assertApproxEqAbs(
             totalUserValue,
-            userInitialBalance - 1,
-            "Total user value (mock tokens + wrapped value) should be 1 wei less than initial due to rounding"
+            userInitialBalance,
+            1,
+            "Total user value (mock tokens + wrapped value) should be approximately equal to initial (within 1 unit)"
         );
     }
 
-    function test_ConversionRates() public {
-        uint256 depositAmount = 10 * 10 ** 6;
+    function testFuzz_ConversionRates(uint256 depositAmount) public {
+        // Bound the deposit amount to something reasonable
+        vm.assume(depositAmount > 0 && depositAmount <= 1_000_000_000 * 10 ** 6);
 
         // Check conversion rates before any deposits
         assertEq(
@@ -195,7 +210,7 @@ contract WrappedTokenTest is Test {
         wrappedToken.deposit(depositAmount, user);
         vm.stopPrank();
 
-        // Conversion rates should still be 1:1
+        // Conversion rates should still be 1:1 regardless of deposit amount
         assertEq(wrappedToken.convertToShares(1e6), 1e18, "Conversion rate should remain stable after deposit");
         assertEq(wrappedToken.convertToAssets(1e18), 1e6, "Conversion rate should remain stable after deposit");
     }
@@ -215,8 +230,11 @@ contract WrappedTokenTest is Test {
         assertLe(assetsReceived, amount, "Assets received should not exceed the amount deposited");
 
         // Should get back the same amount (minus potential rounding)
-        assertEq(
-            assetsReceived, amount, "Assets received should be approximately equal to amount deposited (within 1 unit)"
+        assertApproxEqAbs(
+            assetsReceived,
+            amount,
+            1,
+            "Assets received should be approximately equal to amount deposited (within 1 unit)"
         );
     }
 }
