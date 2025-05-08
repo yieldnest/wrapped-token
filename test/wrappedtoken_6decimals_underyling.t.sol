@@ -8,9 +8,10 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {TransparentUpgradeableProxy} from "@openzeppelin/contracts/proxy/transparent/TransparentUpgradeableProxy.sol";
 
 contract MockToken is ERC20 {
-    uint8 private _decimals = 6;
+    uint8 private _decimals;
 
-    constructor(string memory name, string memory symbol) ERC20(name, symbol) {
+    constructor(string memory name, string memory symbol, uint8 decimalsValue) ERC20(name, symbol) {
+        _decimals = decimalsValue;
         _mint(msg.sender, 100_000_000_000_000 * 10 ** _decimals);
     }
 
@@ -25,8 +26,16 @@ contract WrappedTokenTest_6Decimals_Underlying is Test {
     address public user = address(1);
     address public proxyOwner = address(1234567);
 
+    uint256 public underlyingUnit;
+
+    function underlyingDecimals() public pure returns (uint8) {
+        return 6;
+    }
+
     function setUp() public {
-        mockToken = new MockToken("Mock Token", "MTK");
+        mockToken = new MockToken("Mock Token", "MTK", underlyingDecimals());
+
+        underlyingUnit = 10 ** underlyingDecimals();
 
         // Deploy implementation
         WrappedToken implementation = new WrappedToken();
@@ -44,7 +53,7 @@ contract WrappedTokenTest_6Decimals_Underlying is Test {
         wrappedToken = WrappedToken(address(proxy));
 
         // Give user some tokens
-        mockToken.transfer(user, 100_000_000_000 * 1e6);
+        mockToken.transfer(user, 100_000_000_000 * underlyingUnit);
 
         // Approve wrapped token to spend mock tokens
         vm.startPrank(user);
@@ -52,11 +61,10 @@ contract WrappedTokenTest_6Decimals_Underlying is Test {
         vm.stopPrank();
     }
 
-
     function testFuzz_Deposit(uint256 depositAmount) public {
         // Bound the deposit amount to avoid overflows and zero deposits
-        depositAmount = bound(depositAmount, 1, 1_000_000_000e6);
-        
+        depositAmount = bound(depositAmount, 1, 1_000_000_000 * underlyingUnit);
+
         uint256 userInitialBalance = mockToken.balanceOf(user);
 
         vm.startPrank(user);
@@ -80,10 +88,10 @@ contract WrappedTokenTest_6Decimals_Underlying is Test {
             "Wrapped token contract should hold the deposited tokens"
         );
     }
-    
+
     function testFuzz_Redeem(uint256 depositAmount) public {
         // Bound the deposit amount to avoid overflows and zero deposits
-        depositAmount = bound(depositAmount, 1, 1_000_000_000e6);
+        depositAmount = bound(depositAmount, 1, 1_000_000_000 * underlyingUnit);
 
         // First deposit
         vm.startPrank(user);
@@ -116,11 +124,11 @@ contract WrappedTokenTest_6Decimals_Underlying is Test {
 
     function testFuzz_RedeemWithPreciseDecimals(uint256 depositAmount, uint256 redeemFraction) public {
         // Bound the deposit amount to avoid overflows and zero deposits
-        depositAmount = bound(depositAmount, 1e6, 1_000_000_000e6);
-        
+        depositAmount = bound(depositAmount, 1 * underlyingUnit, 1_000_000_000 * underlyingUnit);
+
         // Bound the redeem fraction to be between 1 and 100 (we'll divide by 100 to get a percentage)
         redeemFraction = bound(redeemFraction, 1, 100);
-        
+
         // Record initial balance before any operations
         uint256 userInitialBalance = mockToken.balanceOf(user);
 
@@ -130,7 +138,7 @@ contract WrappedTokenTest_6Decimals_Underlying is Test {
 
         // Calculate a partial amount to redeem (between 1% and 100%)
         uint256 sharesToRedeem = (sharesReceived * redeemFraction) / 100;
-        
+
         // Ensure we're redeeming at least 1 share
         vm.assume(sharesToRedeem > 0);
 
@@ -188,7 +196,7 @@ contract WrappedTokenTest_6Decimals_Underlying is Test {
             1,
             "Total user value (mock tokens + wrapped value) should be approximately equal to initial (within 1 unit)"
         );
-        
+
         // Verify that the total user value is less than or equal to the initial balance
         // This is important because conversions can only round down, never up
         assertLe(
@@ -198,20 +206,76 @@ contract WrappedTokenTest_6Decimals_Underlying is Test {
         );
     }
 
+    function testTransferAndRedeem() public {
+        address recipient = address(0x123);
+        uint256 depositAmount = 1_000_000 * underlyingUnit; // 1 million tokens with 6 decimals
+        uint256 transferFraction = 40; // 40% of shares will be transferred
+
+        // Setup: Give recipient approval to spend wrapped tokens
+        vm.prank(recipient);
+        wrappedToken.approve(address(this), type(uint256).max);
+
+        // User deposits underlying tokens
+        vm.startPrank(user);
+        uint256 sharesReceived = wrappedToken.deposit(depositAmount, user);
+
+        // Calculate shares to transfer (40% of total shares)
+        uint256 sharesToTransfer = (sharesReceived * transferFraction) / 100;
+
+        // Transfer a portion of wrapped tokens to recipient
+        wrappedToken.transfer(recipient, sharesToTransfer);
+        vm.stopPrank();
+
+        // User redeems their remaining shares
+        vm.startPrank(user);
+        uint256 userAssetsReceived = wrappedToken.redeem(wrappedToken.balanceOf(user), user, user);
+        vm.stopPrank();
+
+        // Recipient redeems their shares
+        vm.startPrank(recipient);
+        uint256 recipientAssetsReceived = wrappedToken.redeem(wrappedToken.balanceOf(recipient), recipient, recipient);
+        vm.stopPrank();
+
+        // Calculate total assets redeemed
+        uint256 totalAssetsRedeemed = userAssetsReceived + recipientAssetsReceived;
+
+        // Verify total redeemed is less than or equal to the deposit amount
+        assertLe(
+            totalAssetsRedeemed,
+            depositAmount,
+            "Total redeemed assets should not exceed the initial deposit due to rounding down"
+        );
+
+        // Verify total redeemed is approximately equal to deposit amount (within 1 wei)
+        assertApproxEqAbs(
+            totalAssetsRedeemed,
+            depositAmount,
+            1,
+            "Total redeemed assets should be approximately equal to deposit amount (within 1 unit)"
+        );
+
+        // Verify that any remaining USDC (delta) is still in the wrapped token contract
+        assertEq(
+            mockToken.balanceOf(address(wrappedToken)),
+            depositAmount - totalAssetsRedeemed,
+            "Any remaining USDC delta should be held by the wrapped token contract"
+        );
+    }
+
     function testFuzz_ConversionRates(uint256 depositAmount) public {
         // Bound the deposit amount to something reasonable
-        vm.assume(depositAmount > 0 && depositAmount <= 1_000_000_000 * 10 ** 6);
+        vm.assume(depositAmount > 0 && depositAmount <= 1_000_000_000 * underlyingUnit);
 
         // Check conversion rates before any deposits
         assertEq(
-            wrappedToken.convertToShares(1e6),
+            wrappedToken.convertToShares(underlyingUnit),
             1e18,
-            "1e6 assets should convert to 1e18 shares (12 decimal places difference)"
+            "1 unit of assets should convert to 1e18 shares (12 decimal places difference)"
         );
         assertEq(
             wrappedToken.convertToAssets(1e18),
-            1e6,
-            "1e18 shares should convert to 1e6 assets (12 decimal places difference)"
+            underlyingUnit,
+            "1e18 shares should convert to 1 unit of assets (12 decimal places difference)"
         );
 
         // Make a deposit
@@ -220,13 +284,13 @@ contract WrappedTokenTest_6Decimals_Underlying is Test {
         vm.stopPrank();
 
         // Conversion rates should still be 1:1 regardless of deposit amount
-        assertEq(wrappedToken.convertToShares(1e6), 1e18, "Conversion rate should remain stable after deposit");
-        assertEq(wrappedToken.convertToAssets(1e18), 1e6, "Conversion rate should remain stable after deposit");
+        assertEq(wrappedToken.convertToShares(underlyingUnit), 1e18, "Conversion rate should remain stable after deposit");
+        assertEq(wrappedToken.convertToAssets(1e18), underlyingUnit, "Conversion rate should remain stable after deposit");
     }
 
     function testFuzz_DepositRedeem(uint256 amount) public {
         // Bound the amount to something reasonable
-        vm.assume(amount > 0 && amount <= 100_000_000 * 10 ** 6);
+        vm.assume(amount > 0 && amount <= 100_000_000 * underlyingUnit);
 
         vm.startPrank(user);
         uint256 sharesReceived = wrappedToken.deposit(amount, user);
@@ -240,7 +304,14 @@ contract WrappedTokenTest_6Decimals_Underlying is Test {
 
         // Should get back the same amount (minus potential rounding)
         assertApproxEqAbs(
-            assetsReceived, amount, 1, "Assets received should be approximately equal to amount deposited (within 1 unit)"
+            assetsReceived,
+            amount,
+            1,
+            "Assets received should be approximately equal to amount deposited (within 1 unit)"
         );
+
+        // Verify that the assets received are less than or equal to the amount deposited
+        // This is a duplicate check to ensure we never receive more assets than deposited
+        assertLe(assetsReceived, amount, "Assets received should never exceed the amount deposited");
     }
 }
