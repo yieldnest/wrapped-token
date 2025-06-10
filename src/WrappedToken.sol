@@ -145,7 +145,7 @@ contract WrappedToken is Initializable, ERC20Upgradeable {
     /**
      * @dev Returns the decimals offset used for scaling deposits and withdrawals.
      */
-    function decimalsOffset() internal view returns (uint8) {
+    function decimalsOffset() public view returns (uint8) {
         TokenStorage storage ts = _getTokenStorage();
         return ts.decimalsOffset;
     }
